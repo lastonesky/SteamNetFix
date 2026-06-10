@@ -1,0 +1,42 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+publish/
+publishwin-x64/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# IDE
+.vs/
+.vscode/
+.github/
+.idea/
+.reasonix/
+.codegraph/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+reasonix.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Other
+*.tmp
+*.bak
+*.swp

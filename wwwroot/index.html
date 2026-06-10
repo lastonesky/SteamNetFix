@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SteamNetFix - 网络加速</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航 -->
+        <header>
+            <div class="header-left">
+                <span class="logo">🚀</span>
+                <h1>SteamNetFix</h1>
+                <span class="subtitle">网络加速工具</span>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator" :class="{ active: status.isAccelerating }">
+                    <span class="dot"></span>
+                    <span>{{ status.isAccelerating ? '加速中' : '未加速' }}</span>
+                </div>
+                <div class="admin-badge" v-if="!status.isAdmin" title="需要管理员权限才能修改hosts文件">
+                    ⚠ 需要管理员权限
+                </div>
+            </div>
+        </header>
+
+        <!-- 主控制区 -->
+        <main>
+            <!-- 操作按钮 -->
+            <section class="controls">
+                <button class="btn btn-primary btn-large" 
+                        :class="{ 'btn-danger': status.isAccelerating }"
+                        @click="toggleAcceleration">
+                    {{ status.isAccelerating ? '⏹ 停止加速' : '▶ 开始加速' }}
+                </button>
+                <button class="btn btn-secondary" @click="runSpeedTest" :disabled="testing">
+                    {{ testing ? '测速中...' : '🔄 重新测速' }}
+                </button>
+            </section>
+
+            <!-- 状态卡片 -->
+            <section class="status-cards">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">📊</span>
+                        <span>加速状态</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="stat-row">
+                            <span class="stat-label">启用服务</span>
+                            <span class="stat-value">{{ status.enabledServiceCount || 0 }} 个</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">加速域名</span>
+                            <span class="stat-value">{{ status.selectedIpCount || 0 }} 个</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">上次测速</span>
+                            <span class="stat-value">{{ formatTime(status.lastSpeedTest) }}</span>
+                        </div>
+                        <div class="stat-row" v-if="status.proxyRunning">
+                            <span class="stat-label">代理连接</span>
+                            <span class="stat-value">{{ status.proxyConnections || 0 }} 次</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">⚙️</span>
+                        <span>快速设置</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="setting-row">
+                            <label>
+                                <input type="checkbox" v-model="config.proxyEnabled" @change="saveConfig">
+                                启用本地代理
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <label>
+                                <input type="checkbox" v-model="config.autoStart" @change="saveConfig">
+                                开机自启
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <label>测速间隔</label>
+                            <select v-model.number="config.autoTestIntervalHours" @change="saveConfig">
+                                <option :value="0">不自动测速</option>
+                                <option :value="6">每6小时</option>
+                                <option :value="12">每12小时</option>
+                                <option :value="24">每24小时</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 服务列表 -->
+            <section class="services-section">
+                <div class="section-header">
+                    <h2>🎮 加速服务</h2>
+                    <button class="btn btn-small btn-secondary" @click="selectAll">全选</button>
+                </div>
+                <div class="services-grid">
+                    <div class="service-card" 
+                         v-for="service in services" 
+                         :key="service.id"
+                         :class="{ active: service.enabled }"
+                         @click="toggleService(service)">
+                        <div class="service-icon">{{ service.icon }}</div>
+                        <div class="service-info">
+                            <div class="service-name">{{ service.name }}</div>
+                            <div class="service-desc">{{ service.description }}</div>
+                            <div class="service-domains">{{ service.domainCount }} 个域名</div>
+                        </div>
+                        <div class="service-toggle">
+                            <span class="toggle-indicator" :class="{ on: service.enabled }"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- IP映射详情 -->
+            <section class="ip-section" v-if="Object.keys(status.selectedIps || {}).length > 0">
+                <div class="section-header">
+                    <h2>📡 IP映射</h2>
+                    <button class="btn btn-small btn-secondary" @click="showIps = !showIps">
+                        {{ showIps ? '隐藏' : '展开' }}
+                    </button>
+                </div>
+                <div class="ip-table" v-if="showIps">
+                    <div class="ip-row" v-for="(ip, domain) in status.selectedIps" :key="domain">
+                        <span class="ip-domain">{{ domain }}</span>
+                        <span class="ip-arrow">→</span>
+                        <span class="ip-address">{{ ip }}</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 日志 -->
+            <section class="logs-section">
+                <div class="section-header">
+                    <h2>📋 运行日志</h2>
+                    <button class="btn btn-small btn-secondary" @click="refreshLogs">刷新</button>
+                </div>
+                <div class="log-container">
+                    <div class="log-line" v-for="(log, index) in logs" :key="index">{{ log }}</div>
+                    <div class="log-empty" v-if="logs.length === 0">暂无日志</div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 底部 -->
+        <footer>
+            <span>SteamNetFix v1.0.0</span>
+            <span>•</span>
+            <span>无广告 · 开源 · 跨平台</span>
+            <span>•</span>
+            <span>端口: {{ status.webPort }}</span>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
