@@ -50,6 +50,12 @@ public class AppConfig
     /// <summary>是否最小化到托盘</summary>
     public bool MinimizeToTray { get; set; } = true;
 
+    /// <summary>是否显示HTTP请求日志</summary>
+    public bool ShowHttpLogs { get; set; }
+
+    /// <summary>是否自动设置系统代理</summary>
+    public bool SetSystemProxy { get; set; } = true;
+
     /// <summary>使用的hosts源（baked-in/custom）</summary>
     public string HostsSource { get; set; } = "baked-in";
 

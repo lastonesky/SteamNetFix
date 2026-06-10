@@ -38,11 +38,13 @@
             <!-- 操作按钮 -->
             <section class="controls">
                 <button class="btn btn-primary btn-large" 
-                        :class="{ 'btn-danger': status.isAccelerating }"
+                        :class="{ 'btn-danger': status.isAccelerating, 'btn-loading': starting }"
+                        :disabled="starting"
                         @click="toggleAcceleration">
-                    {{ status.isAccelerating ? '⏹ 停止加速' : '▶ 开始加速' }}
+                    <span class="spinner" v-if="starting"></span>
+                    {{ starting ? '启动中...' : (status.isAccelerating ? '⏹ 停止加速' : '▶ 开始加速') }}
                 </button>
-                <button class="btn btn-secondary" @click="runSpeedTest" :disabled="testing">
+                <button class="btn btn-secondary" @click="runSpeedTest" :disabled="testing || starting">
                     {{ testing ? '测速中...' : '🔄 重新测速' }}
                 </button>
             </section>
@@ -71,6 +73,14 @@
                             <span class="stat-label">代理连接</span>
                             <span class="stat-value">{{ status.proxyConnections || 0 }} 次</span>
                         </div>
+                        <div class="stat-row" v-if="status.proxyRunning">
+                            <span class="stat-label">代理地址</span>
+                            <span class="stat-value proxy-addr">127.0.0.1:{{ status.proxyPort }}</span>
+                        </div>
+                        <div class="stat-row" v-if="status.isAccelerating && config.setSystemProxy">
+                            <span class="stat-label">系统代理</span>
+                            <span class="stat-value status-on">已设置 ✓</span>
+                        </div>
                     </div>
                 </div>
 
@@ -84,6 +94,12 @@
                             <label>
                                 <input type="checkbox" v-model="config.proxyEnabled" @change="saveConfig">
                                 启用本地代理
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <label>
+                                <input type="checkbox" v-model="config.setSystemProxy" @change="saveConfig">
+                                自动设置系统代理
                             </label>
                         </div>
                         <div class="setting-row">
@@ -130,7 +146,23 @@
                             <span class="stat-label">总流量</span>
                             <span class="traffic-number">{{ formatBytes(traffic.totalBytesReceived + traffic.totalBytesSent) }}</span>
                         </div>
+                        <div class="setting-row">
+                            <label>
+                                <input type="checkbox" :checked="showHttpLogs" @change="toggleHttpLogs">
+                                显示HTTP请求日志
+                            </label>
+                        </div>
                     </div>
+                </div>
+            </section>
+
+            <!-- HTTP请求日志（默认隐藏） -->
+            <section class="logs-section" v-if="showHttpLogs && traffic.recentLogs && traffic.recentLogs.length > 0">
+                <div class="section-header">
+                    <h2>📡 HTTP请求日志</h2>
+                </div>
+                <div class="log-container">
+                    <div class="log-line" v-for="(log, index) in traffic.recentLogs" :key="'http-'+index">{{ log }}</div>
                 </div>
             </section>
 

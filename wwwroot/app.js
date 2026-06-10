@@ -20,9 +20,11 @@ const app = createApp({
             proxyEnabled: true,
             autoStart: false,
             autoTestIntervalHours: 24,
+            setSystemProxy: true,
         });
         const logs = ref([]);
         const testing = ref(false);
+        const starting = ref(false);
         const showIps = ref(false);
 
         // 流量统计
@@ -31,13 +33,18 @@ const app = createApp({
             activeConnections: 0,
             totalBytesReceived: 0,
             totalBytesSent: 0,
+            recentLogs: [],
         });
 
-        // 失联检测
+        // HTTP日志显示开关
+        const showHttpLogs = ref(false);
+
+        // 失联检测（WebSocket）
         const disconnected = ref(false);
-        let healthCheckTimer = null;
-        let healthFailCount = 0;
-        const MAX_HEALTH_FAILS = 3;
+        let ws = null;
+        let wsReconnectTimer = null;
+        let wsFailCount = 0;
+        const MAX_WS_FAILS = 3;
 
         // 流量轮询
         let trafficTimer = null;
@@ -92,7 +99,10 @@ const app = createApp({
                     proxyEnabled: data.proxyEnabled,
                     autoStart: data.autoStart,
                     autoTestIntervalHours: data.autoTestIntervalHours,
+                    showHttpLogs: data.showHttpLogs || false,
+                    setSystemProxy: data.setSystemProxy !== false,
                 };
+                showHttpLogs.value = config.value.showHttpLogs;
             } catch (e) {
                 // 静默处理
             }
@@ -113,39 +123,69 @@ const app = createApp({
             }
         };
 
-        // 健康检查
-        const checkHealth = async () => {
-            try {
-                const response = await fetch('/api/ping');
-                if (response.ok) {
-                    healthFailCount = 0;
-                    if (disconnected.value) {
-                        disconnected.value = false;
-                        showToast('客户端已重新连接', 'success');
-                    }
-                } else {
-                    throw new Error('not ok');
+        // WebSocket 连接（替代健康检查轮询）
+        const connectWs = () => {
+            if (ws && ws.readyState <= WebSocket.OPEN) return;
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+            ws.onopen = () => {
+                wsFailCount = 0;
+                if (disconnected.value) {
+                    disconnected.value = false;
+                    showToast('客户端已重新连接', 'success');
                 }
-            } catch (e) {
-                healthFailCount++;
-                if (healthFailCount >= MAX_HEALTH_FAILS) {
+            };
+
+            ws.onmessage = () => {
+                // 收到心跳回复，重置失败计数
+                wsFailCount = 0;
+            };
+
+            ws.onclose = () => {
+                wsFailCount++;
+                if (wsFailCount >= MAX_WS_FAILS) {
                     disconnected.value = true;
                 }
-            }
+                // 自动重连
+                wsReconnectTimer = setTimeout(connectWs, 3000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
         };
 
         // 切换加速状态
         const toggleAcceleration = async () => {
             if (status.value.isAccelerating) {
+                // 停止加速
                 await api('POST', '/stop');
                 showToast('加速已停止');
+                await refreshStatus();
+                await refreshLogs();
+                await refreshTraffic();
             } else {
-                await api('POST', '/start');
-                showToast('加速已启动');
+                // 启动加速（带加载状态）
+                starting.value = true;
+                try {
+                    const result = await api('POST', '/start');
+                    await refreshStatus();
+                    await refreshLogs();
+                    await refreshTraffic();
+
+                    if (result.success) {
+                        showToast(result.message || '加速已启动', 'success');
+                    } else {
+                        showToast(result.message || '加速启动失败', 'error');
+                    }
+                } catch (e) {
+                    // api() 已经显示了错误提示，此处无需重复
+                } finally {
+                    starting.value = false;
+                }
             }
-            await refreshStatus();
-            await refreshLogs();
-            await refreshTraffic();
         };
 
         // 运行测速
@@ -273,6 +313,9 @@ const app = createApp({
             await refreshLogs();
             await refreshTraffic();
             
+            // 同步HTTP日志显示设置
+            showHttpLogs.value = config.value.showHttpLogs || false;
+
             // 定期刷新状态
             setInterval(async () => {
                 await refreshStatus();
@@ -283,16 +326,22 @@ const app = createApp({
                 await refreshTraffic();
             }, 3000);
 
-            // 健康检查（每10秒检测一次）
-            healthCheckTimer = setInterval(async () => {
-                await checkHealth();
-            }, 10000);
+            // WebSocket 连接（替代每10秒的健康检查轮询）
+            connectWs();
         });
 
         onUnmounted(() => {
-            if (healthCheckTimer) clearInterval(healthCheckTimer);
+            if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+            if (ws) ws.close();
             if (trafficTimer) clearInterval(trafficTimer);
         });
+
+        // 切换HTTP日志显示
+        const toggleHttpLogs = async () => {
+            showHttpLogs.value = !showHttpLogs.value;
+            await api('POST', '/config', { showHttpLogs: showHttpLogs.value });
+            await refreshTraffic();
+        };
 
         return {
             status,
@@ -300,15 +349,18 @@ const app = createApp({
             config,
             logs,
             testing,
+            starting,
             showIps,
             traffic,
             disconnected,
+            showHttpLogs,
             toggleAcceleration,
             runSpeedTest,
             toggleService,
             selectAll,
             saveConfig,
             refreshLogs,
+            toggleHttpLogs,
             formatTime,
             formatBytes,
         };

@@ -55,6 +55,13 @@ public record ToggleResponse(bool Enabled);
 
 public record MessageResponse(string Message);
 
+/// <summary>加速启动结果</summary>
+public record StartResultDto(
+    bool Success,
+    string Message,
+    AccelerationStatusDto? Status = null
+);
+
 // ── 其它 ──
 
 public record SpeedTestResultsDto(

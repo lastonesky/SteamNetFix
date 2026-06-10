@@ -23,6 +23,7 @@ namespace SteamNetFix.App;
 [JsonSerializable(typeof(MessageResponse))]
 [JsonSerializable(typeof(SpeedTestResultsDto))]
 [JsonSerializable(typeof(HostsInfoDto))]
+[JsonSerializable(typeof(StartResultDto))]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(List<ServiceListItemDto>))]
 [JsonSerializable(typeof(List<EnabledServiceDto>))]
@@ -101,6 +102,56 @@ public static class WebApi
             await next();
         });
 
+        // WebSocket 支持（用于前端检测客户端是否存活）
+        app.UseWebSockets();
+        app.Map("/ws", async (HttpContext context) =>
+        {
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+
+            using var ws = await context.WebSockets.AcceptWebSocketAsync();
+            var buffer = new byte[256];
+
+            try
+            {
+                // 连接保持：每隔5秒发一次心跳，同时检测客户端是否断开
+                while (ws.State == System.Net.WebSockets.WebSocketState.Open)
+                {
+                    // 发送心跳
+                    var heartbeat = System.Text.Encoding.UTF8.GetBytes("hb");
+                    await ws.SendAsync(
+                        new ArraySegment<byte>(heartbeat),
+                        System.Net.WebSockets.WebSocketMessageType.Text,
+                        true,
+                        CancellationToken.None);
+
+                    // 等待5秒，期间如果客户端发消息则读取（可忽略内容）
+                    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    try
+                    {
+                        while (!cts.Token.IsCancellationRequested)
+                        {
+                            var result = await ws.ReceiveAsync(
+                                new ArraySegment<byte>(buffer), cts.Token);
+                            if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                                return;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // 超时，继续发心跳
+                    }
+                }
+            }
+            catch
+            {
+                // 连接异常断开，静默处理
+            }
+        });
+
         MapApiRoutes(app, engine);
 
         return app;
@@ -156,8 +207,9 @@ public static class WebApi
         // 开始加速
         api.MapPost("/start", async () =>
         {
-            await engine.StartAccelerateAsync();
-            return Results.Json(engine.GetStatus(), JsonOptions);
+            var (success, message) = await engine.StartAccelerateAsync();
+            var status = engine.GetStatus();
+            return Results.Json(new StartResultDto(success, message, status), JsonOptions);
         });
 
         // 停止加速
@@ -209,6 +261,8 @@ public static class WebApi
                 if (body.AutoStart.HasValue) engine.Config.AutoStart = body.AutoStart.Value;
                 if (body.MinimizeToTray.HasValue) engine.Config.MinimizeToTray = body.MinimizeToTray.Value;
                 if (body.CustomDns != null) engine.Config.CustomDns = body.CustomDns;
+                if (body.ShowHttpLogs.HasValue) engine.Config.ShowHttpLogs = body.ShowHttpLogs.Value;
+                if (body.SetSystemProxy.HasValue) engine.Config.SetSystemProxy = body.SetSystemProxy.Value;
 
                 engine.Config.Save();
                 return Results.Json(engine.Config, JsonOptions);
@@ -246,9 +300,14 @@ public static class WebApi
         api.MapGet("/stats/traffic", () =>
         {
             var stats = engine.GetTrafficStats();
-            return stats != null
-                ? Results.Json(stats, JsonOptions)
-                : Results.Json(new TrafficStatsDto(0, 0, 0, 0, new List<string>()));
+            if (stats == null)
+                return Results.Json(new TrafficStatsDto(0, 0, 0, 0, new List<string>()), JsonOptions);
+
+            // 不显示HTTP日志时，清空RecentLogs以节省带宽
+            if (!engine.Config.ShowHttpLogs)
+                stats = stats with { RecentLogs = new List<string>() };
+
+            return Results.Json(stats, JsonOptions);
         });
 
         // 健康检查（用于前端检测客户端是否存活）
@@ -265,7 +324,9 @@ public record ConfigUpdateRequest(
     int? AutoTestIntervalHours,
     bool? AutoStart,
     bool? MinimizeToTray,
-    string? CustomDns);
+    string? CustomDns,
+    bool? ShowHttpLogs,
+    bool? SetSystemProxy);
 
 /// <summary>
 /// 日志缓冲

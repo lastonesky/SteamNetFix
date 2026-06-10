@@ -42,12 +42,20 @@ public class AcceleratorEngine : IDisposable
         {
             Log("⚠ 警告: 未以管理员/root权限运行，hosts文件可能无法修改");
         }
+
+        // 清除上次可能残留的系统代理（防止崩溃后代理残留导致断网）
+        if (_config.SetSystemProxy)
+        {
+            SystemProxyManager.ClearProxy();
+        }
         
         // 加载上次的最优IP
         if (_config.SelectedIps.Count > 0 && _config.Enabled)
         {
             Log("正在恢复上次加速状态...");
-            await StartAccelerateAsync();
+            var (success, message) = await StartAccelerateAsync();
+            if (!success)
+                Log($"⚠ 恢复加速状态失败: {message}");
         }
         
         // 设置自动测速
@@ -128,28 +136,63 @@ public class AcceleratorEngine : IDisposable
     /// <summary>
     /// 开始加速
     /// </summary>
-    public async Task StartAccelerateAsync()
+    public async Task<(bool Success, string Message)> StartAccelerateAsync()
     {
-        if (IsAccelerating) return;
+        if (IsAccelerating) return (true, "加速已在运行中");
         
         // 如果没有测速结果，先测速
         if (_config.SelectedIps.Count == 0)
         {
             Log("首次使用，正在测速选择最优IP...");
             await RunSpeedTestAsync();
+            
+            if (_config.SelectedIps.Count == 0)
+            {
+                var msg = "测速未获得有效IP，请检查网络连接后重试";
+                Log($"❌ {msg}");
+                return (false, msg);
+            }
         }
 
         // 应用hosts
         if (!await ApplyHosts())
         {
-            Log("❌ 应用hosts失败");
-            return;
+            var msg = "应用hosts失败，请确认已以管理员权限运行";
+            Log($"❌ {msg}");
+            return (false, msg);
         }
 
         // 启动代理服务器（如果启用）
         if (_config.ProxyEnabled)
         {
-            await StartProxyAsync();
+            try
+            {
+                await StartProxyAsync();
+            }
+            catch (Exception ex)
+            {
+                var msg = $"代理服务器启动失败: {ex.Message}";
+                Log($"❌ {msg}");
+                return (false, msg);
+            }
+
+            // 验证代理是否真正可用
+            var proxyOk = await VerifyProxyAsync(_config.ProxyPort);
+            if (!proxyOk)
+            {
+                var msg = $"代理服务器已启动但无法连接 (端口 {_config.ProxyPort})";
+                Log($"⚠ {msg}");
+                return (false, msg);
+            }
+
+            // 设置系统代理（让浏览器等应用流量经过加速器）
+            if (_config.SetSystemProxy)
+            {
+                if (SystemProxyManager.SetProxy(_config.ProxyPort))
+                    Log($"已设置系统代理 → 127.0.0.1:{_config.ProxyPort}");
+                else
+                    Log("⚠ 设置系统代理失败，部分应用可能无法自动走代理通道");
+            }
         }
 
         IsAccelerating = true;
@@ -158,6 +201,24 @@ public class AcceleratorEngine : IDisposable
         
         OnAccelerationStateChanged?.Invoke(true);
         Log("✅ 加速已启动");
+        return (true, "加速已成功启动");
+    }
+
+    /// <summary>
+    /// 验证代理服务器是否可连接
+    /// </summary>
+    private static async Task<bool> VerifyProxyAsync(int port)
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, port);
+            return client.Connected;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -170,6 +231,13 @@ public class AcceleratorEngine : IDisposable
         // 清除hosts
         _hostsManager.Clear();
         HostsManager.FlushDnsCache();
+
+        // 清除系统代理
+        if (_config.SetSystemProxy)
+        {
+            SystemProxyManager.ClearProxy();
+            Log("已清除系统代理");
+        }
 
         // 停止代理
         _proxyServer?.Stop();
@@ -240,14 +308,24 @@ public class AcceleratorEngine : IDisposable
     {
         // 只启用已选择服务的域名
         var enabledServices = GetEnabledServices();
+        if (enabledServices.Count == 0)
+        {
+            Log("没有启用任何加速服务");
+            return false;
+        }
+
         var mappings = new Dictionary<string, string>();
+        bool hasProxyDomains = false;
         
         foreach (var service in enabledServices)
         {
             foreach (var rule in service.Domains)
             {
-                // 代理转发的域名不写入hosts（避免CDN IP过期导致SSL错误）
-                if (rule.UseProxy) continue;
+                if (rule.UseProxy)
+                {
+                    hasProxyDomains = true;
+                    continue;
+                }
 
                 if (_config.SelectedIps.TryGetValue(rule.Domain, out var ip))
                 {
@@ -258,6 +336,12 @@ public class AcceleratorEngine : IDisposable
 
         if (mappings.Count == 0)
         {
+            if (hasProxyDomains)
+            {
+                // 所有域名都通过代理转发，无需写入hosts（这是正常情况）
+                Log("所有域名通过代理转发，跳过hosts写入");
+                return true;
+            }
             Log("没有可用的IP映射");
             return false;
         }
