@@ -19,10 +19,29 @@ public class ProxyServer : IDisposable
     private readonly ConcurrentDictionary<string, long> _stats = new();
     private bool _running;
 
+    // ── 流量统计 ──
+    private long _totalBytesReceived;
+    private long _totalBytesSent;
+    private readonly ConcurrentQueue<string> _connectionLogs = new();
+    private const int MaxConnectionLogs = 500;
+
     public int Port => _port;
     public bool IsRunning => _running;
     public long TotalConnections => _stats.GetValueOrDefault("total", 0);
     public long ActiveConnections => _stats.GetValueOrDefault("active", 0);
+    public long TotalBytesReceived => Interlocked.Read(ref _totalBytesReceived);
+    public long TotalBytesSent => Interlocked.Read(ref _totalBytesSent);
+
+    public TrafficStatsDto GetTrafficStats()
+    {
+        return new TrafficStatsDto(
+            TotalConnections,
+            ActiveConnections,
+            TotalBytesReceived,
+            TotalBytesSent,
+            _connectionLogs.ToList()
+        );
+    }
 
     public ProxyServer(int port, Dictionary<string, string>? hostMappings = null)
     {
@@ -99,14 +118,34 @@ public class ProxyServer : IDisposable
 
                 var method = parts[0].ToUpperInvariant();
                 var url = parts[1];
+                var targetHost = "";
+                var startTime = DateTime.UtcNow;
 
                 if (method == "CONNECT")
                 {
-                    await HandleConnectAsync(stream, url, buffer, ct);
+                    var hostPort = url;
+                    var hp = hostPort.Split(':');
+                    targetHost = hp[0];
+                    var connStart = DateTime.UtcNow;
+                    var (sent, received) = await HandleConnectWithStatsAsync(stream, hostPort, buffer, ct);
+                    var elapsed = (DateTime.UtcNow - connStart).TotalMilliseconds;
+
+                    Interlocked.Add(ref _totalBytesSent, sent);
+                    Interlocked.Add(ref _totalBytesReceived, received);
+
+                    AddConnectionLog(targetHost, "CONNECT", sent + received, elapsed, sent + received > 0);
                 }
                 else
                 {
-                    await HandleHttpAsync(stream, method, url, headerData, buffer, ct);
+                    targetHost = ExtractHostFromUrl(url, headerData);
+                    var httpStart = DateTime.UtcNow;
+                    var (sent, received) = await HandleHttpWithStatsAsync(stream, method, url, headerData, buffer, ct);
+                    var elapsed = (DateTime.UtcNow - httpStart).TotalMilliseconds;
+
+                    Interlocked.Add(ref _totalBytesSent, sent);
+                    Interlocked.Add(ref _totalBytesReceived, received);
+
+                    AddConnectionLog(targetHost, method, sent + received, elapsed, sent + received > 0);
                 }
             }
         }
@@ -120,67 +159,121 @@ public class ProxyServer : IDisposable
         }
     }
 
-    private async Task HandleConnectAsync(Stream clientStream, string hostPort, byte[] buffer, CancellationToken ct)
+    private void AddConnectionLog(string host, string method, long bytes, double ms, bool success)
     {
-        // host格式: domain:port
+        var log = $"[{DateTime.Now:HH:mm:ss}] {method} {host} - {(success ? "OK" : "ERR")} {FormatBytes(bytes)} ({ms:F0}ms)";
+        _connectionLogs.Enqueue(log);
+        while (_connectionLogs.Count > MaxConnectionLogs)
+            _connectionLogs.TryDequeue(out _);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes}B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1}KB";
+        return $"{bytes / (1024.0 * 1024.0):F1}MB";
+    }
+
+    private static string ExtractHostFromUrl(string url, string headers)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return uri.Host;
+        var hostLine = headers.Split('\n')
+            .FirstOrDefault(l => l.Trim().StartsWith("Host:", StringComparison.OrdinalIgnoreCase));
+        if (hostLine != null)
+            return hostLine["Host:".Length..].Trim().Split(':')[0];
+        return url;
+    }
+
+    /// <summary>
+    /// HandleConnectAsync with byte counting
+    /// </summary>
+    private async Task<(long sent, long received)> HandleConnectWithStatsAsync(
+        Stream clientStream, string hostPort, byte[] sharedBuffer, CancellationToken ct)
+    {
         var parts = hostPort.Split(':');
         var host = parts[0];
         var port = parts.Length > 1 ? int.Parse(parts[1]) : 443;
 
-        // 查找是否有IP映射
         var targetIp = ResolveHost(host);
+
+        TcpClient? remoteClient = null;
+        try
+        {
+            remoteClient = new TcpClient();
+            remoteClient.NoDelay = true;
+            await remoteClient.ConnectAsync(targetIp, port, ct);
+        }
+        catch when (targetIp != host)
+        {
+            remoteClient?.Dispose();
+            try
+            {
+                var addresses = await Dns.GetHostAddressesAsync(host, ct);
+                var dnsIp = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString();
+                if (dnsIp == null || dnsIp == targetIp) throw;
+                
+                remoteClient = new TcpClient();
+                remoteClient.NoDelay = true;
+                await remoteClient.ConnectAsync(dnsIp, port, ct);
+            }
+            catch
+            {
+                remoteClient?.Dispose();
+                var errorResponse = Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+                try { await clientStream.WriteAsync(errorResponse, ct); } catch { }
+                return (0, 0);
+            }
+        }
 
         try
         {
-            using var remoteClient = new TcpClient();
-            remoteClient.NoDelay = true;
-            
-            await remoteClient.ConnectAsync(targetIp, port, ct);
-            var remoteStream = remoteClient.GetStream();
+            using (remoteClient)
+            {
+                var remoteStream = remoteClient.GetStream();
 
-            // 发送200 Connection Established
-            var response = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\n");
-            await clientStream.WriteAsync(response, ct);
-            await clientStream.FlushAsync(ct);
+                var response = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\n");
+                await clientStream.WriteAsync(response, ct);
+                await clientStream.FlushAsync(ct);
 
-            // 双向转发数据
-            await BidirectionalCopyAsync(clientStream, remoteStream, buffer, ct);
+                // 双向转发带计数
+                return await CountedBidirectionalCopyAsync(clientStream, remoteStream, ct);
+            }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch
         {
             var errorResponse = Encoding.ASCII.GetBytes(
                 "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
             try { await clientStream.WriteAsync(errorResponse, ct); } catch { }
+            return (0, 0);
         }
     }
 
-    private async Task HandleHttpAsync(Stream clientStream, string method, string url, 
-        string headers, byte[] buffer, CancellationToken ct)
+    /// <summary>
+    /// HandleHttpAsync with byte counting
+    /// </summary>
+    private async Task<(long sent, long received)> HandleHttpWithStatsAsync(
+        Stream clientStream, string method, string url, string headers, byte[] buffer, CancellationToken ct)
     {
-        // 解析URL
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
-            // 可能是相对URL，需要从Host头获取
             var hostHeader = headers.Split('\n')
                 .FirstOrDefault(l => l.Trim().StartsWith("Host:", StringComparison.OrdinalIgnoreCase))
                 ?.Trim();
             if (hostHeader != null)
             {
                 var hostValue = hostHeader["Host:".Length..].Trim();
-                if (Uri.TryCreate($"http://{hostValue}{url}", UriKind.Absolute, out uri))
-                {
-                    // OK
-                }
-                else
+                if (!Uri.TryCreate($"http://{hostValue}{url}", UriKind.Absolute, out uri))
                 {
                     SendError(clientStream, 400, "Bad Request");
-                    return;
+                    return (0, 0);
                 }
             }
             else
             {
                 SendError(clientStream, 400, "Bad Request");
-                return;
+                return (0, 0);
             }
         }
 
@@ -195,26 +288,24 @@ public class ProxyServer : IDisposable
             await remoteClient.ConnectAsync(targetIp, targetPort, ct);
             var remoteStream = remoteClient.GetStream();
 
-            // 修改请求头中的Host
             var modifiedHeaders = ReplaceHostInHeaders(headers, targetHost);
-            
-            // 修改URL为路径
             var pathAndQuery = uri.PathAndQuery;
             var firstLineEnd = modifiedHeaders.IndexOf('\n');
             var requestLine = $"{method} {pathAndQuery} HTTP/1.1";
             modifiedHeaders = requestLine + modifiedHeaders[firstLineEnd..];
 
-            // 发送修改后的请求
             var headerBytes = Encoding.ASCII.GetBytes(modifiedHeaders);
             await remoteStream.WriteAsync(headerBytes, ct);
             await remoteStream.FlushAsync(ct);
 
-            // 转发响应
-            await BidirectionalCopyAsync(clientStream, remoteStream, buffer, ct, isHttp: true);
+            long sent = headerBytes.Length;
+            var (s, r) = await CountedSingleDirectionCopyAsync(remoteStream, clientStream, ct);
+            return (sent + s, r);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch
         {
             SendError(clientStream, 502, "Bad Gateway");
+            return (0, 0);
         }
     }
 
@@ -224,7 +315,6 @@ public class ProxyServer : IDisposable
         {
             return ip;
         }
-        // 如果没有映射，使用系统DNS
         try
         {
             var addresses = Dns.GetHostAddresses(host);
@@ -245,11 +335,8 @@ public class ProxyServer : IDisposable
         {
             var read = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), ct);
             if (read == 0) return "";
-            
             totalRead += read;
             sb.Append(Encoding.ASCII.GetString(buffer, 0, read));
-            
-            // 检查是否读取完所有头部
             if (sb.ToString().Contains("\r\n\r\n"))
                 break;
         }
@@ -261,18 +348,35 @@ public class ProxyServer : IDisposable
         return data;
     }
 
-    private static async Task BidirectionalCopyAsync(Stream client, Stream remote, 
-        byte[] buffer, CancellationToken ct, bool isHttp = false)
+    /// <summary>
+    /// 双向转发（CONNECT隧道），带字节计数
+    /// </summary>
+    private static async Task<(long sent, long received)> CountedBidirectionalCopyAsync(
+        Stream client, Stream remote, CancellationToken ct)
     {
-        var clientToRemote = CopyStreamAsync(client, remote, buffer, ct);
-        var remoteToClient = CopyStreamAsync(remote, client, buffer, ct);
-        
+        long sent = 0, received = 0;
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var clientToRemote = CountedCopyStreamAsync(client, remote, cts.Token, v => Interlocked.Add(ref sent, v));
+        var remoteToClient = CountedCopyStreamAsync(remote, client, cts.Token, v => Interlocked.Add(ref received, v));
+
         await Task.WhenAny(clientToRemote, remoteToClient);
+        cts.Cancel();
+
+        // 等待另一个方向也完成
+        try { await Task.WhenAll(clientToRemote, remoteToClient); } catch { }
+
+        return (sent, received);
     }
 
-    private static async Task CopyStreamAsync(Stream source, Stream destination, 
-        byte[] buffer, CancellationToken ct)
+    /// <summary>
+    /// 单向转发（HTTP代理响应），带字节计数
+    /// </summary>
+    private static async Task<(long sent, long received)> CountedSingleDirectionCopyAsync(
+        Stream source, Stream destination, CancellationToken ct)
     {
+        long total = 0;
+        var buffer = new byte[8192];
         try
         {
             while (!ct.IsCancellationRequested)
@@ -281,12 +385,29 @@ public class ProxyServer : IDisposable
                 if (read == 0) break;
                 await destination.WriteAsync(buffer.AsMemory(0, read), ct);
                 await destination.FlushAsync(ct);
+                total += read;
             }
         }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }
+        return (0, total);
+    }
+
+    private static async Task CountedCopyStreamAsync(Stream source, Stream destination,
+        CancellationToken ct, Action<long> onBytes)
+    {
+        var buffer = new byte[8192];
+        try
         {
-            // 连接关闭，正常退出
+            while (!ct.IsCancellationRequested)
+            {
+                var read = await source.ReadAsync(buffer, ct);
+                if (read == 0) break;
+                await destination.WriteAsync(buffer.AsMemory(0, read), ct);
+                await destination.FlushAsync(ct);
+                onBytes(read);
+            }
         }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }
     }
 
     private static string ReplaceHostInHeaders(string headers, string host)

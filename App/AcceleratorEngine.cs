@@ -186,26 +186,25 @@ public class AcceleratorEngine : IDisposable
     /// <summary>
     /// 获取加速状态信息
     /// </summary>
-    public object GetStatus()
+    public AccelerationStatusDto GetStatus()
     {
         var enabledServices = GetEnabledServices();
-        return new
-        {
-            isAccelerating = IsAccelerating,
-            enabledServiceCount = enabledServices.Count,
-            enabledServices = enabledServices.Select(s => new { s.Id, s.Name, s.Icon }).ToList(),
-            selectedIpCount = _config.SelectedIps.Count,
-            selectedIps = _config.SelectedIps,
-            lastSpeedTest = _config.LastSpeedTest,
-            proxyEnabled = _config.ProxyEnabled,
-            proxyPort = _config.ProxyPort,
-            proxyRunning = _proxyServer?.IsRunning ?? false,
-            proxyConnections = _proxyServer?.TotalConnections ?? 0,
-            isAdmin = HostsManager.IsRunningAsAdmin(),
-            hostsPath = HostsManager.GetHostsFilePath(),
-            webPort = _config.WebPort,
-            autoTestIntervalHours = _config.AutoTestIntervalHours,
-        };
+        return new AccelerationStatusDto(
+            IsAccelerating: IsAccelerating,
+            EnabledServiceCount: enabledServices.Count,
+            EnabledServices: enabledServices.Select(s => new EnabledServiceDto(s.Id, s.Name, s.Icon)).ToList(),
+            SelectedIpCount: _config.SelectedIps.Count,
+            SelectedIps: _config.SelectedIps,
+            LastSpeedTest: _config.LastSpeedTest,
+            ProxyEnabled: _config.ProxyEnabled,
+            ProxyPort: _config.ProxyPort,
+            ProxyRunning: _proxyServer?.IsRunning ?? false,
+            ProxyConnections: _proxyServer?.TotalConnections ?? 0,
+            IsAdmin: HostsManager.IsRunningAsAdmin(),
+            HostsPath: HostsManager.GetHostsFilePath(),
+            WebPort: _config.WebPort,
+            AutoTestIntervalHours: _config.AutoTestIntervalHours
+        );
     }
 
     /// <summary>
@@ -247,6 +246,9 @@ public class AcceleratorEngine : IDisposable
         {
             foreach (var rule in service.Domains)
             {
+                // 代理转发的域名不写入hosts（避免CDN IP过期导致SSL错误）
+                if (rule.UseProxy) continue;
+
                 if (_config.SelectedIps.TryGetValue(rule.Domain, out var ip))
                 {
                     mappings[rule.Domain] = ip;
@@ -273,9 +275,33 @@ public class AcceleratorEngine : IDisposable
     {
         if (_proxyServer?.IsRunning == true) return;
 
-        _proxyServer = new ProxyServer(_config.ProxyPort, _config.SelectedIps);
+        // 只传入非代理转发域名的IP映射（UseProxy=true的域名应使用DNS解析）
+        var enabledServices = GetEnabledServices();
+        var proxySafeIps = _config.SelectedIps
+            .Where(kv => !IsProxyDomain(kv.Key, enabledServices))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        _proxyServer = new ProxyServer(_config.ProxyPort, proxySafeIps);
         await _proxyServer.StartAsync();
         Log($"代理服务器已启动 (127.0.0.1:{_config.ProxyPort})");
+    }
+
+    /// <summary>
+    /// 获取代理流量统计
+    /// </summary>
+    public TrafficStatsDto? GetTrafficStats()
+    {
+        return _proxyServer?.GetTrafficStats();
+    }
+
+    /// <summary>
+    /// 判断域名是否属于代理转发模式（不应用IP映射，使用DNS解析）
+    /// </summary>
+    private static bool IsProxyDomain(string domain, List<ServiceDefinition> services)
+    {
+        return services
+            .SelectMany(s => s.Domains)
+            .Any(r => r.Domain == domain && r.UseProxy);
     }
 
     private void Log(string message)

@@ -205,7 +205,7 @@ h1 {
 /* ===== Status Cards ===== */
 .status-cards {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 20px;
     margin-bottom: 24px;
 }
@@ -568,6 +568,54 @@ footer {
 .toast.error {
     border-color: var(--danger);
     background: var(--danger-glow);
+}
+
+/* ===== Disconnect Banner ===== */
+.disconnect-banner {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: var(--danger);
+    color: white;
+    border-radius: var(--radius);
+    box-shadow: 0 4px 24px rgba(244, 67, 54, 0.4);
+    font-size: 14px;
+    font-weight: 600;
+    animation: slideDown 0.3s ease;
+    cursor: pointer;
+}
+
+.disconnect-banner .close-btn {
+    margin-left: 8px;
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.disconnect-banner .close-btn:hover {
+    opacity: 1;
+}
+
+@keyframes slideDown {
+    from { transform: translateY(-100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* ===== Traffic Stats ===== */
+.traffic-number {
+    font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 16px;
+}
+
+.logs-section.compact .log-container {
+    max-height: 180px;
 }
 
 @keyframes slideIn {

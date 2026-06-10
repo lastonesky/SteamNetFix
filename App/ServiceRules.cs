@@ -87,6 +87,7 @@ public static class BuiltinRules
                         "23.215.179.31",   // Akamai
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam 社区
                 new()
@@ -100,6 +101,7 @@ public static class BuiltinRules
                         "23.36.238.110",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam API
                 new()
@@ -112,6 +114,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam CDN
                 new()
@@ -125,6 +128,7 @@ public static class BuiltinRules
                         "23.36.238.110",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam 聊天
                 new()
@@ -136,6 +140,7 @@ public static class BuiltinRules
                         "104.75.136.29",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam 媒体
                 new()
@@ -148,6 +153,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam 静态资源
                 new()
@@ -160,6 +166,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -171,6 +178,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam 持久化内容
                 new()
@@ -183,6 +191,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // Steam 客户端更新
                 new()
@@ -194,6 +203,7 @@ public static class BuiltinRules
                         "104.75.136.29",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -221,6 +231,7 @@ public static class BuiltinRules
                         "140.82.113.4",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -233,6 +244,7 @@ public static class BuiltinRules
                         "185.199.111.154",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -245,6 +257,7 @@ public static class BuiltinRules
                         "185.199.111.133",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -255,6 +268,7 @@ public static class BuiltinRules
                         "140.82.121.4",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -267,6 +281,7 @@ public static class BuiltinRules
                         "185.199.111.133",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // GitHub Copilot
                 new()
@@ -278,6 +293,7 @@ public static class BuiltinRules
                         "140.82.121.23",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // GitHub API
                 new()
@@ -289,6 +305,7 @@ public static class BuiltinRules
                         "140.82.121.5",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 // GitHub releases
                 new()
@@ -302,6 +319,7 @@ public static class BuiltinRules
                         "185.199.111.133",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -328,6 +346,7 @@ public static class BuiltinRules
                         "172.217.16.206",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -339,6 +358,7 @@ public static class BuiltinRules
                         "142.250.186.46",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -350,6 +370,7 @@ public static class BuiltinRules
                         "142.250.186.14",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -374,6 +395,7 @@ public static class BuiltinRules
                         "159.153.28.131",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -384,6 +406,7 @@ public static class BuiltinRules
                         "159.153.28.131",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -395,6 +418,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -419,6 +443,7 @@ public static class BuiltinRules
                         "216.98.48.21",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -429,6 +454,7 @@ public static class BuiltinRules
                         "216.98.48.21",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -455,6 +481,7 @@ public static class BuiltinRules
                         "151.101.130.167",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -465,6 +492,7 @@ public static class BuiltinRules
                         "151.101.194.167",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -491,6 +519,7 @@ public static class BuiltinRules
                         "151.101.130.167",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -501,6 +530,7 @@ public static class BuiltinRules
                         "35.186.224.26",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -525,6 +555,7 @@ public static class BuiltinRules
                         "128.116.0.2",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -535,6 +566,7 @@ public static class BuiltinRules
                         "128.116.0.2",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -560,6 +592,7 @@ public static class BuiltinRules
                         "172.67.0.99",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -570,6 +603,7 @@ public static class BuiltinRules
                         "104.22.59.179",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -596,6 +630,7 @@ public static class BuiltinRules
                         "151.101.194.217",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -606,6 +641,7 @@ public static class BuiltinRules
                         "151.101.66.217",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };
@@ -632,6 +668,7 @@ public static class BuiltinRules
                         "162.159.138.234",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -644,6 +681,7 @@ public static class BuiltinRules
                         "162.159.133.233",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
                 new()
                 {
@@ -654,6 +692,7 @@ public static class BuiltinRules
                         "162.159.136.234",
                     },
                     Port = 443,
+                    UseProxy = true,
                 },
             }
         };

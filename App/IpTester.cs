@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -153,11 +154,100 @@ public class IpTester
             }
             else
             {
-                progress?.Report($"  {rule.Domain} -> 无可用IP");
+                // 候选IP全不可达，尝试DNS解析获取新IP
+                progress?.Report($"  {rule.Domain} -> 候选IP均不可达，尝试DNS解析...");
+                var dnsResults = await TestDomainViaDnsAsync(rule);
+                if (dnsResults.Count > 0)
+                {
+                    var best = dnsResults.First();
+                    bestIps[rule.Domain] = best.Ip;
+                    progress?.Report($"  {rule.Domain} -> {best.Ip} ({best.LatencyMs}ms) [DNS回退]");
+                }
+                else
+                {
+                    progress?.Report($"  {rule.Domain} -> 无可用IP");
+                }
             }
         }
 
         return new Dictionary<string, string>(bestIps);
+    }
+
+    /// <summary>
+    /// 通过DNS解析域名获取新IP并测试
+    /// </summary>
+    private async Task<List<IpTestResult>> TestDomainViaDnsAsync(DomainRule rule)
+    {
+        try
+        {
+            // 解析域名的A记录
+            var addresses = await Dns.GetHostAddressesAsync(rule.Domain);
+            var dnsIps = addresses
+                .Where(a => a.AddressFamily == AddressFamily.InterNetwork)
+                .Select(a => a.ToString())
+                .Distinct()
+                .ToList();
+
+            if (dnsIps.Count == 0) return new List<IpTestResult>();
+
+            // 过滤掉已经在候选人中的IP（避免重复测试）
+            var newIps = dnsIps
+                .Where(ip => !rule.CandidateIps.Contains(ip))
+                .ToList();
+
+            if (newIps.Count == 0) return new List<IpTestResult>();
+
+            // 测试DNS解析出的新IP
+            var results = new ConcurrentBag<IpTestResult>();
+            var semaphore = new SemaphoreSlim(_concurrentTests);
+
+            var tasks = newIps.Select(async ip =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    var latencies = new List<long>();
+                    for (int i = 0; i < 3; i++)
+                    {
+                        var result = await TestIpAsync(ip, rule.Domain, rule.Port);
+                        if (result.IsReachable)
+                        {
+                            latencies.Add(result.LatencyMs);
+                        }
+                        else
+                        {
+                            latencies.Add(_timeoutMs);
+                            break;
+                        }
+                    }
+
+                    var avgLatency = (long)latencies.Average();
+                    results.Add(new IpTestResult
+                    {
+                        Ip = ip,
+                        Domain = rule.Domain,
+                        LatencyMs = avgLatency,
+                        IsReachable = latencies.Any(l => l < _timeoutMs),
+                        TestTime = DateTime.UtcNow,
+                    });
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+            return results
+                .Where(r => r.IsReachable)
+                .OrderBy(r => r.LatencyMs)
+                .ToList();
+        }
+        catch
+        {
+            // DNS解析失败，静默处理
+            return new List<IpTestResult>();
+        }
     }
 
     /// <summary>

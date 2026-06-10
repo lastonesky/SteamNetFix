@@ -1,4 +1,4 @@
-const { createApp, ref, onMounted, computed } = Vue;
+const { createApp, ref, onMounted, onUnmounted } = Vue;
 
 const app = createApp({
     setup() {
@@ -24,6 +24,23 @@ const app = createApp({
         const logs = ref([]);
         const testing = ref(false);
         const showIps = ref(false);
+
+        // 流量统计
+        const traffic = ref({
+            totalConnections: 0,
+            activeConnections: 0,
+            totalBytesReceived: 0,
+            totalBytesSent: 0,
+        });
+
+        // 失联检测
+        const disconnected = ref(false);
+        let healthCheckTimer = null;
+        let healthFailCount = 0;
+        const MAX_HEALTH_FAILS = 3;
+
+        // 流量轮询
+        let trafficTimer = null;
 
         // API 请求封装
         const api = async (method, path, body = null) => {
@@ -81,6 +98,42 @@ const app = createApp({
             }
         };
 
+        // 刷新流量统计
+        const refreshTraffic = async () => {
+            if (!status.value.proxyRunning && !status.value.isAccelerating) {
+                return;
+            }
+            try {
+                const data = await api('GET', '/stats/traffic');
+                if (data) {
+                    traffic.value = data;
+                }
+            } catch (e) {
+                // 静默处理
+            }
+        };
+
+        // 健康检查
+        const checkHealth = async () => {
+            try {
+                const response = await fetch('/api/ping');
+                if (response.ok) {
+                    healthFailCount = 0;
+                    if (disconnected.value) {
+                        disconnected.value = false;
+                        showToast('客户端已重新连接', 'success');
+                    }
+                } else {
+                    throw new Error('not ok');
+                }
+            } catch (e) {
+                healthFailCount++;
+                if (healthFailCount >= MAX_HEALTH_FAILS) {
+                    disconnected.value = true;
+                }
+            }
+        };
+
         // 切换加速状态
         const toggleAcceleration = async () => {
             if (status.value.isAccelerating) {
@@ -92,6 +145,7 @@ const app = createApp({
             }
             await refreshStatus();
             await refreshLogs();
+            await refreshTraffic();
         };
 
         // 运行测速
@@ -185,10 +239,18 @@ const app = createApp({
             return date.toLocaleDateString('zh-CN');
         };
 
+        // 格式化字节数
+        const formatBytes = (bytes) => {
+            if (!bytes || bytes === 0) return '0 B';
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+            return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        };
+
         // Toast 提示
         let toastTimer = null;
         const showToast = (message, type = 'success') => {
-            // 移除旧的toast
             const oldToast = document.querySelector('.toast');
             if (oldToast) oldToast.remove();
             
@@ -209,11 +271,27 @@ const app = createApp({
             await refreshServices();
             await refreshConfig();
             await refreshLogs();
+            await refreshTraffic();
             
             // 定期刷新状态
             setInterval(async () => {
                 await refreshStatus();
             }, 5000);
+
+            // 定期刷新流量
+            trafficTimer = setInterval(async () => {
+                await refreshTraffic();
+            }, 3000);
+
+            // 健康检查（每10秒检测一次）
+            healthCheckTimer = setInterval(async () => {
+                await checkHealth();
+            }, 10000);
+        });
+
+        onUnmounted(() => {
+            if (healthCheckTimer) clearInterval(healthCheckTimer);
+            if (trafficTimer) clearInterval(trafficTimer);
         });
 
         return {
@@ -223,6 +301,8 @@ const app = createApp({
             logs,
             testing,
             showIps,
+            traffic,
+            disconnected,
             toggleAcceleration,
             runSpeedTest,
             toggleService,
@@ -230,6 +310,7 @@ const app = createApp({
             saveConfig,
             refreshLogs,
             formatTime,
+            formatBytes,
         };
     }
 });

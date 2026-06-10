@@ -9,6 +9,12 @@
 </head>
 <body>
     <div id="app">
+        <!-- 失联通知横幅 -->
+        <div class="disconnect-banner" v-if="disconnected" @click="disconnected = false">
+            <span>🔌 客户端已断开连接，请重新启动程序</span>
+            <span class="close-btn">×</span>
+        </div>
+
         <!-- 顶部导航 -->
         <header>
             <div class="header-left">
@@ -94,6 +100,35 @@
                                 <option :value="12">每12小时</option>
                                 <option :value="24">每24小时</option>
                             </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">📈</span>
+                        <span>流量统计</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="stat-row">
+                            <span class="stat-label">总连接数</span>
+                            <span class="traffic-number">{{ traffic.totalConnections || 0 }}</span>
+                        </div>
+                        <div class="stat-row" v-if="status.proxyRunning">
+                            <span class="stat-label">当前活跃</span>
+                            <span class="traffic-number">{{ traffic.activeConnections || 0 }}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">收到流量</span>
+                            <span class="traffic-number">{{ formatBytes(traffic.totalBytesReceived) }}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">发送流量</span>
+                            <span class="traffic-number">{{ formatBytes(traffic.totalBytesSent) }}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">总流量</span>
+                            <span class="traffic-number">{{ formatBytes(traffic.totalBytesReceived + traffic.totalBytesSent) }}</span>
                         </div>
                     </div>
                 </div>

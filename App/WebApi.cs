@@ -8,12 +8,27 @@ using Microsoft.Extensions.FileProviders.Embedded;
 
 namespace SteamNetFix.App;
 
-// 源码生成器需要的Json上下文（解决CreateSlimBuilder下JSON序列化问题）
+// 源码生成器需要的Json上下文
 [JsonSerializable(typeof(ToggleRequest))]
 [JsonSerializable(typeof(ConfigUpdateRequest))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(AccelerationStatusDto))]
+[JsonSerializable(typeof(EnabledServiceDto))]
+[JsonSerializable(typeof(ServiceListItemDto))]
+[JsonSerializable(typeof(ServiceDetailDto))]
+[JsonSerializable(typeof(DomainDetailDto))]
+[JsonSerializable(typeof(ToggleResponse))]
+[JsonSerializable(typeof(MessageResponse))]
+[JsonSerializable(typeof(SpeedTestResultsDto))]
+[JsonSerializable(typeof(HostsInfoDto))]
+[JsonSerializable(typeof(ErrorResponse))]
+[JsonSerializable(typeof(List<ServiceListItemDto>))]
+[JsonSerializable(typeof(List<EnabledServiceDto>))]
+[JsonSerializable(typeof(List<DomainDetailDto>))]
+[JsonSerializable(typeof(TrafficStatsDto))]
+[JsonSerializable(typeof(PingResponse))]
 internal partial class AppJsonContext : JsonSerializerContext { }
 
 /// <summary>
@@ -30,8 +45,8 @@ public static class WebApi
 
     public static WebApplication CreateWebApp(AcceleratorEngine engine, int port)
     {
-        var builder = WebApplication.CreateSlimBuilder();
-        
+        var builder = WebApplication.CreateBuilder();
+
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -102,15 +117,10 @@ public static class WebApi
         api.MapGet("/services", () =>
         {
             var services = engine.GetAvailableServices();
-            return Results.Json(services.Select(s => new
-            {
-                s.Id,
-                s.Name,
-                s.Description,
-                s.Icon,
-                domainCount = s.Domains.Count,
-                enabled = engine.Config.EnabledServices.Contains(s.Id),
-            }), JsonOptions);
+            return Results.Json(services.Select(s => new ServiceListItemDto(
+                s.Id, s.Name, s.Description, s.Icon, s.Domains.Count,
+                engine.Config.EnabledServices.Contains(s.Id)
+            )).ToList(), JsonOptions);
         });
 
         // 获取服务详情
@@ -118,22 +128,16 @@ public static class WebApi
         {
             var service = BuiltinRules.GetById(id);
             if (service == null)
-                return Results.NotFound(new { error = "服务未找到" });
+                return Results.NotFound(new ErrorResponse("服务未找到"));
             
-            return Results.Json(new
-            {
-                service.Id,
-                service.Name,
-                service.Description,
-                service.Icon,
-                enabled = engine.Config.EnabledServices.Contains(service.Id),
-                domains = service.Domains.Select(d => new
-                {
-                    d.Domain,
-                    d.CandidateIps,
-                    selectedIp = engine.Config.SelectedIps.GetValueOrDefault(d.Domain),
-                }),
-            }, JsonOptions);
+            return Results.Json(new ServiceDetailDto(
+                service.Id, service.Name, service.Description, service.Icon,
+                engine.Config.EnabledServices.Contains(service.Id),
+                service.Domains.Select(d => new DomainDetailDto(
+                    d.Domain, d.CandidateIps,
+                    engine.Config.SelectedIps.GetValueOrDefault(d.Domain)
+                )).ToList()
+            ), JsonOptions);
         });
 
         // 启用/禁用服务
@@ -141,12 +145,12 @@ public static class WebApi
         {
             var service = BuiltinRules.GetById(id);
             if (service == null)
-                return Results.NotFound(new { error = "服务未找到" });
+                return Results.NotFound(new ErrorResponse("服务未找到"));
             
             var enable = req?.Enabled ?? !engine.Config.EnabledServices.Contains(id);
             engine.ToggleService(id, enable);
             
-            return Results.Json(new { enabled = enable });
+            return Results.Json(new ToggleResponse(enable));
         });
 
         // 开始加速
@@ -167,24 +171,23 @@ public static class WebApi
         api.MapPost("/speedtest", async () =>
         {
             _ = Task.Run(() => engine.RunSpeedTestAsync());
-            return Results.Json(new { message = "测速已开始" });
+            return Results.Json(new MessageResponse("测速已开始"));
         });
 
         // 重新测速
         api.MapPost("/retest", async () =>
         {
             _ = Task.Run(() => engine.RetestAsync());
-            return Results.Json(new { message = "重新测速已开始" });
+            return Results.Json(new MessageResponse("重新测速已开始"));
         });
 
         // 获取测速结果
         api.MapGet("/speedtest/results", () =>
         {
-            return Results.Json(new
-            {
-                selectedIps = engine.Config.SelectedIps,
-                lastTest = engine.Config.LastSpeedTest,
-            }, JsonOptions);
+            return Results.Json(new SpeedTestResultsDto(
+                engine.Config.SelectedIps,
+                engine.Config.LastSpeedTest
+            ), JsonOptions);
         });
 
         // 获取配置
@@ -197,7 +200,7 @@ public static class WebApi
             {
                 var body = await request.ReadFromJsonAsync<ConfigUpdateRequest>();
                 if (body == null)
-                    return Results.BadRequest(new { error = "无效的请求" });
+                    return Results.BadRequest(new ErrorResponse("无效的请求"));
 
                 if (body.WebPort.HasValue) engine.Config.WebPort = body.WebPort.Value;
                 if (body.ProxyPort.HasValue) engine.Config.ProxyPort = body.ProxyPort.Value;
@@ -212,26 +215,25 @@ public static class WebApi
             }
             catch (Exception ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return Results.BadRequest(new ErrorResponse(ex.Message));
             }
         });
 
         // 获取hosts内容
         api.MapGet("/hosts", () =>
         {
-            return Results.Json(new
-            {
-                path = HostsManager.GetHostsFilePath(),
-                entries = engine.GetHostsEntries(),
-                isAdmin = HostsManager.IsRunningAsAdmin(),
-            }, JsonOptions);
+            return Results.Json(new HostsInfoDto(
+                HostsManager.GetHostsFilePath(),
+                engine.GetHostsEntries(),
+                HostsManager.IsRunningAsAdmin()
+            ), JsonOptions);
         });
 
         // 刷新DNS
         api.MapPost("/dns/flush", () =>
         {
             engine.FlushDns();
-            return Results.Json(new { message = "DNS缓存已刷新" });
+            return Results.Json(new MessageResponse("DNS缓存已刷新"));
         });
 
         // 获取日志
@@ -239,6 +241,18 @@ public static class WebApi
         {
             return Results.Json(LogBuffer.GetRecentLogs(), JsonOptions);
         });
+
+        // 获取流量统计
+        api.MapGet("/stats/traffic", () =>
+        {
+            var stats = engine.GetTrafficStats();
+            return stats != null
+                ? Results.Json(stats, JsonOptions)
+                : Results.Json(new TrafficStatsDto(0, 0, 0, 0, new List<string>()));
+        });
+
+        // 健康检查（用于前端检测客户端是否存活）
+        api.MapGet("/ping", () => Results.Json(new PingResponse(DateTime.UtcNow)));
     }
 }
 
