@@ -359,13 +359,11 @@ public class AcceleratorEngine : IDisposable
     {
         if (_proxyServer?.IsRunning == true) return;
 
-        // 只传入非代理转发域名的IP映射（UseProxy=true的域名应使用DNS解析）
-        var enabledServices = GetEnabledServices();
-        var proxySafeIps = _config.SelectedIps
-            .Where(kv => !IsProxyDomain(kv.Key, enabledServices))
-            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        // 将所有已选择的最优IP传入代理，确保代理模式下的域名也能获得加速
+        // （不再过滤 UseProxy=true 的域名，因为那些域名也需要优化IP而非回退到系统DNS）
+        var allSelectedIps = new Dictionary<string, string>(_config.SelectedIps);
 
-        _proxyServer = new ProxyServer(_config.ProxyPort, proxySafeIps);
+        _proxyServer = new ProxyServer(_config.ProxyPort, allSelectedIps);
         await _proxyServer.StartAsync();
         Log($"代理服务器已启动 (127.0.0.1:{_config.ProxyPort})");
     }
@@ -376,16 +374,6 @@ public class AcceleratorEngine : IDisposable
     public TrafficStatsDto? GetTrafficStats()
     {
         return _proxyServer?.GetTrafficStats();
-    }
-
-    /// <summary>
-    /// 判断域名是否属于代理转发模式（不应用IP映射，使用DNS解析）
-    /// </summary>
-    private static bool IsProxyDomain(string domain, List<ServiceDefinition> services)
-    {
-        return services
-            .SelectMany(s => s.Domains)
-            .Any(r => r.Domain == domain && r.UseProxy);
     }
 
     private void Log(string message)

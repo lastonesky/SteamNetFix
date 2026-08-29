@@ -87,7 +87,7 @@ public static class BuiltinRules
                         "23.215.179.31",   // Akamai
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam 社区
                 new()
@@ -101,7 +101,7 @@ public static class BuiltinRules
                         "23.36.238.110",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam API
                 new()
@@ -114,7 +114,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam CDN
                 new()
@@ -128,7 +128,7 @@ public static class BuiltinRules
                         "23.36.238.110",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam 聊天
                 new()
@@ -140,7 +140,7 @@ public static class BuiltinRules
                         "104.75.136.29",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam 媒体
                 new()
@@ -153,7 +153,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam 静态资源
                 new()
@@ -166,7 +166,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 new()
                 {
@@ -178,7 +178,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam 持久化内容
                 new()
@@ -191,7 +191,7 @@ public static class BuiltinRules
                         "23.44.238.172",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
                 },
                 // Steam 客户端更新
                 new()
@@ -203,7 +203,72 @@ public static class BuiltinRules
                         "104.75.136.29",
                     },
                     Port = 443,
-                    UseProxy = true,
+                    UseProxy = false,
+                },
+                // Steam 登录
+                new()
+                {
+                    Domain = "login.steampowered.com",
+                    CandidateIps = new List<string>
+                    {
+                        "23.52.164.132",
+                        "104.75.136.29",
+                        "23.44.238.172",
+                    },
+                    Port = 443,
+                    UseProxy = false,
+                },
+                // Steam 结算
+                new()
+                {
+                    Domain = "checkout.steampowered.com",
+                    CandidateIps = new List<string>
+                    {
+                        "23.52.164.132",
+                        "104.75.136.29",
+                        "23.44.238.172",
+                    },
+                    Port = 443,
+                    UseProxy = false,
+                },
+                // Steam 帮助
+                new()
+                {
+                    Domain = "help.steampowered.com",
+                    CandidateIps = new List<string>
+                    {
+                        "23.52.164.132",
+                        "104.75.136.29",
+                        "23.44.238.172",
+                    },
+                    Port = 443,
+                    UseProxy = false,
+                },
+                // Steam 共享静态资源 (Cloudflare)
+                new()
+                {
+                    Domain = "shared.cloudflare.steamstatic.com",
+                    CandidateIps = new List<string>
+                    {
+                        "23.52.164.132",
+                        "104.75.136.29",
+                        "23.44.238.172",
+                    },
+                    Port = 443,
+                    UseProxy = false,
+                },
+                // Steam 头像 (Cloudflare)
+                new()
+                {
+                    Domain = "avatars.cloudflare.steamstatic.com",
+                    CandidateIps = new List<string>
+                    {
+                        "23.52.164.132",
+                        "104.75.136.29",
+                        "23.44.238.172",
+                    },
+                    Port = 443,
+                    UseProxy = false,
                 },
             }
         };
